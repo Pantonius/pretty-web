@@ -1,5 +1,6 @@
 import * as Y from 'yjs'
 import { WebsocketProvider } from 'y-websocket'
+import { IndexeddbPersistence } from 'y-indexeddb'
 
 export interface UserIdentity {
   name: string
@@ -11,6 +12,11 @@ export const files = ydoc.getMap<Y.Text>('files')
 
 export const roomName =
   new URLSearchParams(window.location.search).get('room') ?? 'default'
+
+export const idbPersistence = new IndexeddbPersistence(
+  `pretty-web:${roomName}`,
+  ydoc
+)
 
 export const collabUrl =
   import.meta.env.VITE_COLLAB_URL ??

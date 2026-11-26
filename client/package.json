@@ -21,6 +21,7 @@
     "react-dom": "^19.0.0",
     "typst-wasm": "^1.0.0",
     "y-codemirror.next": "^0.3.6",
+    "y-indexeddb": "^9.0.12",
     "y-websocket": "^3.1.0",
     "yjs": "^13.6.20"
   },

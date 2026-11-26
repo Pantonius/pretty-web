@@ -1,6 +1,15 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as Y from 'yjs'
-import { awareness, files, localUser, provider, roomName, ydoc, type UserIdentity } from './collab'
+import {
+  awareness,
+  files,
+  idbPersistence,
+  localUser,
+  provider,
+  roomName,
+  ydoc,
+  type UserIdentity
+} from './collab'
 import { SAMPLE_INTRO, SAMPLE_MAIN } from './sample'
 import { FileExplorer } from './components/FileExplorer'
 import { CodeEditor } from './components/CodeEditor'
@@ -56,26 +65,35 @@ export default function App() {
   }, [])
 
   useEffect(() => {
+    let cancelled = false
     const seed = () => {
-      if (files.size === 0) {
-        ydoc.transact(() => {
-          files.set('main.typ', new Y.Text(SAMPLE_MAIN))
-          files.set('sections/intro.typ', new Y.Text(SAMPLE_INTRO))
-        })
-      }
+      if (cancelled || files.size > 0) return
+      ydoc.transact(() => {
+        files.set('main.typ', new Y.Text(SAMPLE_MAIN))
+        files.set('sections/intro.typ', new Y.Text(SAMPLE_INTRO))
+      })
     }
-    if (provider.synced) {
-      seed()
-      return
-    }
-    const onSync = (synced: boolean) => {
-      if (!synced) return
-      seed()
-      provider.off('sync', onSync)
-    }
-    provider.on('sync', onSync)
+    const syncedOrTimeout = (timeoutMs: number) =>
+      new Promise<void>(resolve => {
+        if (provider.synced) {
+          resolve()
+          return
+        }
+        const onSync = (synced: boolean) => {
+          if (!synced) return
+          clearTimeout(timer)
+          resolve()
+        }
+        const timer = setTimeout(resolve, timeoutMs)
+        provider.on('sync', onSync)
+      })
+    const idbDone = new Promise<void>(resolve => {
+      idbPersistence.on('synced', () => resolve())
+      setTimeout(resolve, 1500)
+    })
+    Promise.all([idbDone, syncedOrTimeout(5000)]).then(seed)
     return () => {
-      provider.off('sync', onSync)
+      cancelled = true
     }
   }, [])
 

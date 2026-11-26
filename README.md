@@ -18,6 +18,7 @@ WebSocket server.
 - Compiler diagnostics panel with error/warning locations
 - PDF export
 - Multiple rooms: append `?room=my-room` to the URL
+- Works offline: documents persist in IndexedDB and re-attach when you return
 
 ## Getting started
 
@@ -71,6 +72,23 @@ and the preview recompiles a few hundred milliseconds after you stop typing.
 In development the Vite dev server proxies `/collab/*` to the local collab
 server. For production, build the client (`npm run build`) and either reverse-proxy
 `/collab` to the collab server or set `VITE_COLLAB_URL` to its `wss://` address.
+
+## GitHub Pages
+
+A GitHub Actions workflow (`.github/workflows/deploy-pages.yml`) builds the
+client and deploys it to Pages on every push to `main` (site:
+`https://<owner>.github.io/pretty-web/`). One-time setup in the repository:
+*Settings → Pages → Build and deployment → Source: **GitHub Actions***.
+
+Pages only hosts the frontend — there is no collaboration server on the JAMstack,
+so on Pages the editor runs in **solo mode**: everything compiles locally, work is
+saved to IndexedDB, and rooms are per-browser. To collaborate, run the collab
+server somewhere with WebSocket support and build with
+`VITE_COLLAB_URL=wss://your-server`.
+
+Note: the in-browser engine prefers WebAssembly JSPI (current Chromium) and falls
+back to a web worker; GitHub Pages cannot send the cross-origin isolation headers
+needed for `SharedArrayBuffer`, so the worker fallback may not compile there.
 
 ## Limitations
 
