@@ -1,15 +1,29 @@
 import { useEffect, useState } from 'react'
-import { exportPdf, compileProject, type CompileOutcome } from '../compiler'
-import { files } from '../collab'
+import {
+  exportPdf,
+  compileProject,
+  type CompileOutcome,
+  type ProjectAsset,
+  type ProjectFile
+} from '../compiler'
+import { assets, files } from '../collab'
 
 type Status = 'booting' | 'compiling' | 'ready' | 'error'
 
-function snapshotProject(): { path: string; text: string }[] {
-  const project: { path: string; text: string }[] = []
+function snapshotProject(): ProjectFile[] {
+  const project: ProjectFile[] = []
   files.forEach((text, path) => {
     project.push({ path, text: text.toString() })
   })
   return project
+}
+
+function snapshotAssets(): ProjectAsset[] {
+  const list: ProjectAsset[] = []
+  assets.forEach((bytes, path) => {
+    list.push({ path, bytes })
+  })
+  return list
 }
 
 export function Preview({ activePath }: { activePath: string | null }) {
@@ -24,8 +38,9 @@ export function Preview({ activePath }: { activePath: string | null }) {
     const run = async () => {
       try {
         const project = snapshotProject()
+        const assetFiles = snapshotAssets()
         const main = files.has('main.typ') ? 'main.typ' : (activePath ?? project[0]?.path ?? '')
-        const result = await compileProject(project, main)
+        const result = await compileProject(project, assetFiles, main)
         if (cancelled) return
         setOutcome(result)
         setStatus(result.ok ? 'ready' : 'error')
@@ -45,18 +60,21 @@ export function Preview({ activePath }: { activePath: string | null }) {
 
     schedule()
     files.observeDeep(schedule)
+    assets.observe(schedule)
     return () => {
       cancelled = true
       clearTimeout(timer)
       files.unobserveDeep(schedule)
+      assets.unobserve(schedule)
     }
   }, [activePath])
 
   const downloadPdf = async () => {
     const project = snapshotProject()
+    const assetFiles = snapshotAssets()
     const main = files.has('main.typ') ? 'main.typ' : (activePath ?? project[0]?.path ?? '')
     try {
-      const blob = await exportPdf(project, main)
+      const blob = await exportPdf(project, assetFiles, main)
       const url = URL.createObjectURL(blob)
       const anchor = document.createElement('a')
       anchor.href = url
