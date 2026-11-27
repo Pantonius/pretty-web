@@ -152,6 +152,10 @@ export function getAwareness(): Awareness {
   return awareness
 }
 
+export function tryGetAwareness(): Awareness | null {
+  return awareness
+}
+
 export function initCollab(options: { token?: string } = {}): WebsocketProvider {
   if (provider) return provider
   provider = new WebsocketProvider(
