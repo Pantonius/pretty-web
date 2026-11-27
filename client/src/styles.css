@@ -164,13 +164,86 @@ body {
   flex: 1;
 }
 
+.section-actions {
+  display: inline-flex;
+  gap: 2px;
+}
+
 .file-actions {
   display: none;
   gap: 2px;
 }
 
-.file-row:hover .file-actions {
+.file-row:hover .file-actions,
+.folder-row:hover .file-actions {
   display: inline-flex;
+}
+
+.file-list.dropping {
+  outline: 2px dashed var(--accent);
+  outline-offset: -4px;
+  border-radius: 6px;
+}
+
+.create-toggle {
+  display: flex;
+  gap: 4px;
+  margin-bottom: 4px;
+}
+
+.toggle-btn {
+  background: var(--bg);
+  border: 1px solid var(--border);
+  color: var(--text-dim);
+  border-radius: 5px;
+  font-size: 11px;
+  padding: 2px 8px;
+  cursor: pointer;
+}
+
+.toggle-btn.on {
+  border-color: var(--accent);
+  color: var(--text);
+}
+
+.asset-view {
+  flex: 1;
+  min-height: 0;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 24px;
+}
+
+.asset-image {
+  max-width: 100%;
+  max-height: 70%;
+  object-fit: contain;
+  background: #fff;
+  border-radius: 4px;
+  padding: 6px;
+  box-shadow: 0 4px 24px rgb(0 0 0 / 0.45);
+}
+
+.asset-info {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 4px;
+  color: var(--text-dim);
+}
+
+.asset-kind {
+  font-size: 11px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+}
+
+.asset-size {
+  font-size: 13px;
+  color: var(--text);
 }
 
 .icon-btn {

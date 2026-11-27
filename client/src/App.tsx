@@ -1,18 +1,24 @@
 import { useCallback, useEffect, useState } from 'react'
 import * as Y from 'yjs'
 import {
+  assets,
   colorFor,
   files,
+  folders,
   getAwareness,
   getProvider,
   idbPersistence,
   initCollab,
+  isTextPath,
+  listEntries,
+  normalizePath,
   randomUser,
   roomName,
   setLocalUser,
   tryGetProvider,
   updateCollabToken,
   ydoc,
+  type Entry,
   type UserIdentity
 } from './collab'
 import {
@@ -30,6 +36,7 @@ import {
 import { SAMPLE_INTRO, SAMPLE_MAIN } from './sample'
 import { FileExplorer } from './components/FileExplorer'
 import { CodeEditor } from './components/CodeEditor'
+import { AssetViewer } from './components/AssetViewer'
 import { Preview } from './components/Preview'
 
 const authConfig: AuthConfig = readAuthConfig()
@@ -77,17 +84,21 @@ function clearSessionAndReload() {
 }
 
 function Workspace({ self }: { self: UserIdentity }) {
-  const [paths, setPaths] = useState<string[]>([])
+  const [entries, setEntries] = useState<Entry[]>([])
   const [active, setActive] = useState<string | null>(null)
   const peers = usePeers()
   const status = useConnectionStatus()
 
   useEffect(() => {
-    const update = () => setPaths(Array.from(files.keys()).sort())
+    const update = () => setEntries(listEntries())
     update()
     files.observe(update)
+    assets.observe(update)
+    folders.observe(update)
     return () => {
       files.unobserve(update)
+      assets.unobserve(update)
+      folders.unobserve(update)
     }
   }, [])
 
@@ -125,10 +136,21 @@ function Workspace({ self }: { self: UserIdentity }) {
     }
   }, [])
 
+  const kindOf = useCallback(
+    (path: string) => entries.find(entry => entry.path === path)?.kind,
+    [entries]
+  )
+
   useEffect(() => {
-    if (active !== null && files.has(active)) return
-    setActive(files.has('main.typ') ? 'main.typ' : (paths[0] ?? null))
-  }, [paths, active])
+    const kind = active !== null ? entries.find(entry => entry.path === active)?.kind : undefined
+    if (kind !== undefined && kind !== 'folder') return
+    const firstText = entries.find(entry => entry.kind === 'text')
+    if (firstText) {
+      setActive(firstText.path)
+    } else if (active !== null && kind === 'folder') {
+      setActive(null)
+    }
+  }, [entries, active])
 
   useEffect(() => {
     if (authConfig.mode !== 'oidc') return
@@ -152,47 +174,119 @@ function Workspace({ self }: { self: UserIdentity }) {
   const openFile = useCallback((path: string) => setActive(path), [])
 
   const createFile = useCallback((path: string) => {
-    if (!path || files.has(path)) return
+    const to = normalizePath(path)
+    if (!to || files.has(to) || assets.has(to)) return
     ydoc.transact(() => {
-      files.set(path, new Y.Text(''))
+      files.set(to, new Y.Text(''))
     })
-    setActive(path)
+    setActive(to)
   }, [])
 
-  const deleteFile = useCallback(
+  const createFolder = useCallback((path: string) => {
+    const to = normalizePath(path)
+    if (!to || files.has(to) || assets.has(to) || folders.has(to)) return
+    ydoc.transact(() => {
+      folders.set(to, 1)
+    })
+  }, [])
+
+  const deleteEntry = useCallback(
     (path: string) => {
+      const prefix = `${path}/`
       ydoc.transact(() => {
-        files.delete(path)
+        for (const map of [files, assets, folders]) {
+          for (const key of Array.from(map.keys())) {
+            if (key === path || key.startsWith(prefix)) map.delete(key)
+          }
+        }
       })
-      if (active === path) setActive(null)
+      if (active !== null && (active === path || active.startsWith(prefix))) setActive(null)
     },
     [active]
   )
 
-  const renameFile = useCallback(
+  const renameEntry = useCallback(
     (path: string, next: string) => {
-      const text = files.get(path)
-      if (!text || files.has(next)) return
+      const to = normalizePath(next)
+      if (!to || to === path) return
+      const prefix = `${path}/`
+      const suffix = (key: string) => key.slice(path.length)
       ydoc.transact(() => {
-        files.set(next, new Y.Text(text.toString()))
-        files.delete(path)
+        if (files.has(path)) {
+          if (files.has(to) || assets.has(to)) return
+          files.set(to, new Y.Text((files.get(path) as Y.Text).toString()))
+          files.delete(path)
+        } else if (assets.has(path)) {
+          if (files.has(to) || assets.has(to)) return
+          assets.set(to, assets.get(path) as Uint8Array)
+          assets.delete(path)
+        } else if (folders.has(path)) {
+          if (files.has(to) || assets.has(to) || folders.has(to)) return
+          folders.delete(path)
+          folders.set(to, 1)
+          for (const map of [files, assets]) {
+            for (const key of Array.from(map.keys())) {
+              if (!key.startsWith(prefix)) continue
+              if (map === files) files.set(to + suffix(key), new Y.Text((map.get(key) as Y.Text).toString()))
+              else assets.set(to + suffix(key), map.get(key) as Uint8Array)
+              map.delete(key)
+            }
+          }
+          for (const key of Array.from(folders.keys())) {
+            if (!key.startsWith(prefix)) continue
+            folders.delete(key)
+            folders.set(to + suffix(key), 1)
+          }
+        }
       })
-      if (active === path) setActive(next)
+      if (active === path) setActive(to)
+      else if (active !== null && active.startsWith(prefix)) setActive(to + active.slice(path.length))
     },
     [active]
   )
 
-  const activeText = active !== null ? files.get(active) : undefined
+  const uploadFiles = useCallback((fileList: FileList, targetDir: string) => {
+    void (async () => {
+      const dir = normalizePath(targetDir)
+      const skipped: string[] = []
+      for (const file of Array.from(fileList)) {
+        const path = normalizePath(dir ? `${dir}/${file.name}` : file.name)
+        if (!path) continue
+        if (files.has(path) || assets.has(path)) {
+          skipped.push(path)
+          continue
+        }
+        const bytes = new Uint8Array(await file.arrayBuffer())
+        if (isTextPath(path)) {
+          files.set(path, new Y.Text(new TextDecoder().decode(bytes)))
+        } else {
+          assets.set(path, bytes)
+        }
+      }
+      if (skipped.length > 0) {
+        window.alert(`Skipped ${skipped.length} file(s) that already exist:\n${skipped.join('\n')}`)
+      }
+    })()
+  }, [])
+
+  const activeKind = active !== null ? kindOf(active) : undefined
+  const activeText = active !== null && activeKind === 'text' ? files.get(active) : undefined
+  const activeAsset =
+    active !== null && activeKind === 'asset' && assets.has(active) ?
+      { path: active, bytes: assets.get(active) as Uint8Array }
+    : null
 
   return (
     <div className="app">
       <FileExplorer
-        paths={paths}
+        entries={entries}
         active={active}
         onOpen={openFile}
-        onCreate={createFile}
-        onDelete={deleteFile}
-        onRename={renameFile}
+        onCreateFile={createFile}
+        onCreateFolder={createFolder}
+        onDelete={deleteEntry}
+        onRename={renameEntry}
+        onUpload={uploadFiles}
         peers={peers}
         self={self}
         status={status}
@@ -213,6 +307,8 @@ function Workspace({ self }: { self: UserIdentity }) {
           </div>
           {activeText ? (
             <CodeEditor key={active} ytext={activeText} />
+          ) : activeAsset ? (
+            <AssetViewer asset={activeAsset} />
           ) : (
             <div className="empty-editor">Select or create a file to start editing</div>
           )}

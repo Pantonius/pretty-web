@@ -10,12 +10,73 @@ export interface UserIdentity {
 
 export const ydoc = new Y.Doc()
 export const files = ydoc.getMap<Y.Text>('files')
+export const assets = ydoc.getMap<Uint8Array>('assets')
+export const folders = ydoc.getMap<number>('folders')
+
+export type EntryKind = 'text' | 'asset' | 'folder'
+
+export interface Entry {
+  path: string
+  kind: EntryKind
+}
+
+const TEXT_EXTENSIONS = new Set([
+  'typ',
+  'txt',
+  'csv',
+  'tsv',
+  'json',
+  'md',
+  'bib',
+  'toml',
+  'yaml',
+  'yml',
+  'html',
+  'css',
+  'js',
+  'xml'
+])
+
+const IMAGE_EXTENSIONS = new Set(['png', 'jpg', 'jpeg', 'gif', 'webp', 'svg', 'avif', 'bmp', 'ico'])
+
+export function extensionOf(path: string): string {
+  const name = path.split('/').pop() ?? ''
+  const dot = name.lastIndexOf('.')
+  return dot === -1 ? '' : name.slice(dot + 1).toLowerCase()
+}
+
+export function isTextPath(path: string): boolean {
+  return TEXT_EXTENSIONS.has(extensionOf(path))
+}
+
+export function isImagePath(path: string): boolean {
+  return IMAGE_EXTENSIONS.has(extensionOf(path))
+}
+
+export function normalizePath(path: string): string {
+  return path
+    .replace(/\\/g, '/')
+    .split('/')
+    .map(part => part.trim())
+    .filter(part => part.length > 0 && part !== '.' && part !== '..')
+    .join('/')
+}
+
+export function listEntries(): Entry[] {
+  const entries = new Map<string, EntryKind>()
+  for (const path of files.keys()) entries.set(path, 'text')
+  for (const path of assets.keys()) if (!entries.has(path)) entries.set(path, 'asset')
+  for (const path of folders.keys()) if (!entries.has(path)) entries.set(path, 'folder')
+  return Array.from(entries, ([path, kind]) => ({ path, kind })).sort((a, b) =>
+    a.path.localeCompare(b.path)
+  )
+}
 
 export const roomName =
   new URLSearchParams(window.location.search).get('room') ?? 'default'
 
 export const collabUrl =
-  import.meta.env.VITE_COLLAB_URL ??
+  import.meta.env.VITE_COLLAB_URL ||
   `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/collab`
 
 export const idbPersistence = new IndexeddbPersistence(
