@@ -5,7 +5,6 @@ import {
   colorFor,
   files,
   folders,
-  getAwareness,
   getProvider,
   idbPersistence,
   initCollab,
@@ -15,6 +14,7 @@ import {
   randomUser,
   roomName,
   setLocalUser,
+  tryGetAwareness,
   tryGetProvider,
   updateCollabToken,
   ydoc,
@@ -44,7 +44,8 @@ const authConfig: AuthConfig = readAuthConfig()
 function usePeers(): UserIdentity[] {
   const [peers, setPeers] = useState<UserIdentity[]>([])
   useEffect(() => {
-    const awareness = getAwareness()
+    const awareness = tryGetAwareness()
+    if (!awareness) return
     const update = () => {
       const list: UserIdentity[] = []
       awareness.getStates().forEach((state, id) => {
@@ -63,11 +64,12 @@ function usePeers(): UserIdentity[] {
 }
 
 function useConnectionStatus(): string {
-  const provider = getProvider()
+  const provider = tryGetProvider()
   const [status, setStatus] = useState(
-    provider.wsconnected ? 'connected' : provider.wsconnecting ? 'connecting' : 'disconnected'
+    provider ? (provider.wsconnected ? 'connected' : provider.wsconnecting ? 'connecting' : 'disconnected') : 'connecting'
   )
   useEffect(() => {
+    if (!provider) return
     const onStatus = ({ status }: { status: string }) => setStatus(status)
     provider.on('status', onStatus)
     return () => {
@@ -401,9 +403,11 @@ export default function App() {
 }
 
 function AnonymousApp() {
-  const [self] = useState<UserIdentity>(() => randomUser())
-  useEffect(() => {
+  const [self] = useState<UserIdentity>(() => {
     initCollab()
+    return randomUser()
+  })
+  useEffect(() => {
     setLocalUser(self)
   }, [self])
   return <Workspace self={self} />
