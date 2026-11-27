@@ -1,4 +1,5 @@
 import { useEffect, useRef } from 'react'
+import { autocompletion } from '@codemirror/autocomplete'
 import { EditorState } from '@codemirror/state'
 import {
   EditorView,
@@ -14,6 +15,7 @@ import { yCollab } from 'y-codemirror.next'
 import * as Y from 'yjs'
 import { getAwareness } from '../collab'
 import { typstLanguage } from '../typst-lang'
+import { typstCompletions } from '../typst-completions'
 
 export function CodeEditor({ ytext }: { ytext: Y.Text }) {
   const containerRef = useRef<HTMLDivElement>(null)
@@ -32,6 +34,7 @@ export function CodeEditor({ ytext }: { ytext: Y.Text }) {
           EditorView.lineWrapping,
           oneDark,
           typstLanguage,
+          autocompletion({ override: [typstCompletions] }),
           yCollab(ytext, getAwareness(), { undoManager }),
           keymap.of([...defaultKeymap, indentWithTab])
         ]
