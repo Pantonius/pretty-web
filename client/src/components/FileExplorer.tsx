@@ -1,13 +1,15 @@
-import { useMemo, useState } from 'react'
-import type { UserIdentity } from '../collab'
+import { useMemo, useRef, useState } from 'react'
+import type { Entry, EntryKind, UserIdentity } from '../collab'
 
 interface FileExplorerProps {
-  paths: string[]
+  entries: Entry[]
   active: string | null
   onOpen: (path: string) => void
-  onCreate: (path: string) => void
+  onCreateFile: (path: string) => void
+  onCreateFolder: (path: string) => void
   onDelete: (path: string) => void
   onRename: (path: string, next: string) => void
+  onUpload: (fileList: FileList, targetDir: string) => void
   peers: UserIdentity[]
   self: UserIdentity
   status: string
@@ -17,21 +19,21 @@ interface FileExplorerProps {
 interface TreeNode {
   name: string
   path: string
-  isFile: boolean
+  kind: EntryKind
   children: Map<string, TreeNode>
 }
 
-function buildTree(paths: string[]): TreeNode {
-  const root: TreeNode = { name: '', path: '', isFile: false, children: new Map() }
-  for (const path of paths) {
-    const parts = path.split('/')
+function buildTree(entries: Entry[]): TreeNode {
+  const root: TreeNode = { name: '', path: '', kind: 'folder', children: new Map() }
+  for (const entry of entries) {
+    const parts = entry.path.split('/')
     let node = root
     parts.forEach((part, index) => {
-      const isFile = index === parts.length - 1
+      const kind = index === parts.length - 1 ? entry.kind : 'folder'
       const nodePath = parts.slice(0, index + 1).join('/')
       let child = node.children.get(part)
       if (!child) {
-        child = { name: part, path: nodePath, isFile, children: new Map() }
+        child = { name: part, path: nodePath, kind, children: new Map() }
         node.children.set(part, child)
       }
       node = child
@@ -42,9 +44,15 @@ function buildTree(paths: string[]): TreeNode {
 
 function sortNodes(nodes: Map<string, TreeNode>): TreeNode[] {
   return Array.from(nodes.values()).sort((a, b) => {
-    if (a.isFile !== b.isFile) return a.isFile ? 1 : -1
+    if ((a.kind === 'folder') !== (b.kind === 'folder')) return a.kind === 'folder' ? -1 : 1
     return a.name.localeCompare(b.name)
   })
+}
+
+function iconFor(node: TreeNode): string {
+  if (node.kind === 'folder') return '▸'
+  if (node.kind === 'asset') return '▣'
+  return node.path.endsWith('.typ') ? 'P' : '≡'
 }
 
 function TreeItem({
@@ -62,28 +70,29 @@ function TreeItem({
   onDelete: (path: string) => void
   onRename: (path: string, next: string) => void
 }) {
-  if (node.isFile) {
-    const isActive = node.path === active
-    return (
+  const isFolder = node.kind === 'folder'
+  const isActive = !isFolder && node.path === active
+  const rename = (event: React.MouseEvent) => {
+    event.stopPropagation()
+    const next = window.prompt('New name', node.path)
+    if (next && next !== node.path) onRename(node.path, next)
+  }
+  return (
+    <div>
       <div
-        className={`file-row${isActive ? ' active' : ''}`}
+        className={`${isFolder ? 'folder-row' : 'file-row'}${isActive ? ' active' : ''}`}
         style={{ paddingLeft: `${8 + depth * 14}px` }}
-        onClick={() => onOpen(node.path)}
+        onClick={() => {
+          if (isFolder) return
+          onOpen(node.path)
+        }}
       >
-        <span className="file-icon">P</span>
-        <span className="file-name" title={node.path}>
+        <span className={isFolder ? 'folder-icon' : 'file-icon'}>{iconFor(node)}</span>
+        <span className={isFolder ? 'folder-name' : 'file-name'} title={node.path}>
           {node.name}
         </span>
         <span className="file-actions">
-          <button
-            className="icon-btn"
-            title="Rename"
-            onClick={event => {
-              event.stopPropagation()
-              const next = window.prompt('New name', node.path)
-              if (next && next !== node.path) onRename(node.path, next)
-            }}
-          >
+          <button className="icon-btn" title="Rename" onClick={rename}>
             ✎
           </button>
           <button
@@ -97,15 +106,6 @@ function TreeItem({
             ×
           </button>
         </span>
-      </div>
-    )
-  }
-
-  return (
-    <div>
-      <div className="folder-row" style={{ paddingLeft: `${8 + depth * 14}px` }}>
-        <span className="folder-icon">▸</span>
-        <span className="folder-name">{node.name}</span>
       </div>
       {sortNodes(node.children).map(child => (
         <TreeItem
@@ -123,26 +123,39 @@ function TreeItem({
 }
 
 export function FileExplorer({
-  paths,
+  entries,
   active,
   onOpen,
-  onCreate,
+  onCreateFile,
+  onCreateFolder,
   onDelete,
   onRename,
+  onUpload,
   peers,
   self,
   status,
   roomName
 }: FileExplorerProps) {
   const [newName, setNewName] = useState('')
-  const [creating, setCreating] = useState(false)
-  const tree = useMemo(() => buildTree(paths), [paths])
+  const [createMode, setCreateMode] = useState<'file' | 'folder' | null>(null)
+  const [dropping, setDropping] = useState(false)
+  const uploadInput = useRef<HTMLInputElement>(null)
+  const tree = useMemo(() => buildTree(entries), [entries])
+
+  const cancel = () => {
+    setCreateMode(null)
+    setNewName('')
+  }
 
   const submit = () => {
-    const name = newName.trim()
-    if (name) onCreate(name.replace(/^\/+/, ''))
-    setNewName('')
-    setCreating(false)
+    const name = newName.trim().replace(/^\/+|\/+$/g, '')
+    if (!name) {
+      cancel()
+      return
+    }
+    if (createMode === 'folder') onCreateFolder(name)
+    else onCreateFile(name)
+    cancel()
   }
 
   return (
@@ -161,13 +174,45 @@ export function FileExplorer({
 
       <div className="section-title">
         <span>Files</span>
-        <button className="icon-btn" title="New file" onClick={() => setCreating(true)}>
-          +
-        </button>
+        <span className="section-actions">
+          <button className="icon-btn" title="New file or folder" onClick={() => setCreateMode('file')}>
+            +
+          </button>
+          <button
+            className="icon-btn"
+            title="Upload files (or drop them on the file list)"
+            onClick={() => uploadInput.current?.click()}
+          >
+            ⇪
+          </button>
+        </span>
       </div>
 
-      <div className="file-list">
-        {paths.length === 0 && <div className="empty-hint">No files yet</div>}
+      <input
+        ref={uploadInput}
+        type="file"
+        multiple
+        hidden
+        onChange={event => {
+          if (event.target.files && event.target.files.length > 0) onUpload(event.target.files, '')
+          event.target.value = ''
+        }}
+      />
+
+      <div
+        className={`file-list${dropping ? ' dropping' : ''}`}
+        onDragOver={event => {
+          event.preventDefault()
+          setDropping(true)
+        }}
+        onDragLeave={() => setDropping(false)}
+        onDrop={event => {
+          event.preventDefault()
+          setDropping(false)
+          if (event.dataTransfer.files.length > 0) onUpload(event.dataTransfer.files, '')
+        }}
+      >
+        {entries.length === 0 && <div className="empty-hint">No files yet</div>}
         {sortNodes(tree.children).map(node => (
           <TreeItem
             key={node.path}
@@ -179,20 +224,31 @@ export function FileExplorer({
             onRename={onRename}
           />
         ))}
-        {creating && (
+        {createMode && (
           <div className="new-file-row">
+            <div className="create-toggle">
+              <button
+                className={createMode === 'file' ? 'toggle-btn on' : 'toggle-btn'}
+                onClick={() => setCreateMode('file')}
+              >
+                File
+              </button>
+              <button
+                className={createMode === 'folder' ? 'toggle-btn on' : 'toggle-btn'}
+                onClick={() => setCreateMode('folder')}
+              >
+                Folder
+              </button>
+            </div>
             <input
               autoFocus
               className="new-file-input"
-              placeholder="path/to/file.typ"
+              placeholder={createMode === 'folder' ? 'assets/images' : 'path/to/file.typ'}
               value={newName}
               onChange={event => setNewName(event.target.value)}
               onKeyDown={event => {
                 if (event.key === 'Enter') submit()
-                if (event.key === 'Escape') {
-                  setCreating(false)
-                  setNewName('')
-                }
+                if (event.key === 'Escape') cancel()
               }}
               onBlur={submit}
             />

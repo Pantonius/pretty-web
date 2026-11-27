@@ -11,7 +11,9 @@ WebSocket server.
 ## Features
 
 - Real-time collaborative editing (CRDT-based, works offline and reconnects)
-- File explorer with create / rename / delete for multi-file projects
+- File explorer with folders and create / rename / delete for multi-file projects
+- Upload assets (images, CSV, fonts, …) via button or drag & drop — they are
+  synced to every collaborator and readable from Typst (`#image(...)`, `#csv(...)`)
 - Split view: Typst source (CodeMirror 6 with Typst highlighting) and live preview
 - Typst compiled client-side via [typst-wasm](https://github.com/typst-wasm/typst-wasm),
   including embedded default fonts (Libertinus Serif, New Computer Modern, DejaVu Sans Mono)
@@ -36,6 +38,32 @@ Open `http://localhost:5173` in two browser windows (or add `?room=whatever`
 to both URLs) and start typing — edits, cursors, and selections sync instantly,
 and the preview recompiles a few hundred milliseconds after you stop typing.
 
+## Folders and assets
+
+Projects are organized by path: `sections/intro.typ` shows up inside a
+`sections/` folder automatically. Use the **+** button in the sidebar to create
+a file or a folder at any depth (e.g. `assets/images`), and rename or delete
+folders like files — renaming a folder rewrites all paths inside it.
+
+Upload assets with the **⇪** button or by dropping files onto the file list.
+Text-like files (`.typ`, `.csv`, `.json`, `.md`, …) become collaborative text
+files you can edit in place; everything else (`.png`, `.jpg`, `.ttf`, …) is
+stored as a binary asset and synced to every collaborator. Uploaded files are
+added to the Typst compiler's virtual filesystem, so documents can reference
+them directly:
+
+```typst
+#image("assets/photo.png")
+#table(columns: 2, ..csv("data/scores.csv").flatten())
+```
+
+Selecting an image asset shows a preview in the editor pane; any asset can be
+downloaded from there.
+
+`node scripts/smoke-assets.mjs` verifies image and CSV resolution in the
+compiler, and `node scripts/smoke-asset-sync.mjs` verifies two clients sync
+assets and folders through the collab server.
+
 ## Architecture
 
 ```
@@ -49,9 +77,11 @@ and the preview recompiles a few hundred milliseconds after you stop typing.
     └── src/index.mjs       y-protocols over WebSockets + snapshot persistence
 ```
 
-- **Shared state** lives in one Yjs document per room. Files are a `Y.Map<Y.Text>`
-  (`path → source`), so renames and inserts are CRDT operations, not filesystem
-  calls. The editor binds each file's `Y.Text` to CodeMirror with `y-codemirror.next`.
+- **Shared state** lives in one Yjs document per room. Text files are a
+  `Y.Map<Y.Text>` (`path → source`), binary assets a `Y.Map<Uint8Array>`, and
+  empty folders a `Y.Map` of path markers — renames and inserts are CRDT
+  operations, not filesystem calls. The editor binds each file's `Y.Text` to
+  CodeMirror with `y-codemirror.next`.
 - **The server** (`server/src/index.mjs`) implements the y-websocket sync and
   awareness protocols with `ws` and `y-protocols`, relays updates between
   clients, and snapshots each room to `.data/<room>.ydoc` (one second after the
@@ -176,8 +206,11 @@ needed for `SharedArrayBuffer`, so the worker fallback may not compile there.
 
 ## Limitations
 
-- No authentication or access control — anyone with the room URL can edit.
+- In `none` auth mode there is no access control — anyone with the room URL can
+  edit. Enable `oidc` or `proxy` mode to require authentik.
 - Room snapshots are plain files, not a proper database.
 - Renames copy the text rather than the edit history.
+- Uploaded assets are re-sent to the compiler when they change; very large
+  binary assets increase memory use in every collaborator's browser.
 - The browser engine needs WebAssembly JSPI (current Chromium) or module
   workers (fallback), so very old browsers are not supported.

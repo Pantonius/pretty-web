@@ -97,10 +97,40 @@ export interface ProjectFile {
   text: string
 }
 
+export interface ProjectAsset {
+  path: string
+  bytes: Uint8Array
+}
+
 export interface CompileOutcome {
   ok: boolean
   pages: string[]
   diagnostics: Diagnostic[]
+}
+
+const addedAssets = new Map<string, Uint8Array>()
+
+function bytesEqual(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length) return false
+  for (let index = 0; index < a.length; index += 1) {
+    if (a[index] !== b[index]) return false
+  }
+  return true
+}
+
+async function syncAssets(compiler: TypstCompiler, assets: ProjectAsset[]): Promise<void> {
+  for (const asset of assets) {
+    const previous = addedAssets.get(asset.path)
+    if (previous && bytesEqual(previous, asset.bytes)) continue
+    await compiler.addFile(asset.path, asset.bytes)
+    addedAssets.set(asset.path, asset.bytes)
+  }
+  for (const path of Array.from(addedAssets.keys())) {
+    if (!assets.some(asset => asset.path === path)) {
+      await compiler.removeFile(path)
+      addedAssets.delete(path)
+    }
+  }
 }
 
 function failureOutcome(message: string, diagnostics: Diagnostic[] = []): CompileOutcome {
@@ -122,6 +152,7 @@ function failureOutcome(message: string, diagnostics: Diagnostic[] = []): Compil
 
 export async function compileProject(
   project: ProjectFile[],
+  assets: ProjectAsset[],
   main: string
 ): Promise<CompileOutcome> {
   return serialize(async () => {
@@ -135,6 +166,10 @@ export async function compileProject(
       await compiler.addSource(file.path, file.text)
       listed.delete(file.path)
     }
+    for (const asset of assets) {
+      listed.delete(asset.path)
+    }
+    await syncAssets(compiler, assets)
     for (const stale of listed) {
       await compiler.removeFile(stale)
     }
@@ -155,12 +190,17 @@ export async function compileProject(
   })
 }
 
-export async function exportPdf(project: ProjectFile[], main: string): Promise<Blob> {
+export async function exportPdf(
+  project: ProjectFile[],
+  assets: ProjectAsset[],
+  main: string
+): Promise<Blob> {
   return serialize(async () => {
     const compiler = await getCompiler()
     for (const file of project) {
       await compiler.addSource(file.path, file.text)
     }
+    await syncAssets(compiler, assets)
     const result = await compiler.compile({ format: 'pdf', main })
     return new Blob([result.output as BlobPart], { type: 'application/pdf' })
   })
