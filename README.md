@@ -204,6 +204,38 @@ Note: the in-browser engine prefers WebAssembly JSPI (current Chromium) and fall
 back to a web worker; GitHub Pages cannot send the cross-origin isolation headers
 needed for `SharedArrayBuffer`, so the worker fallback may not compile there.
 
+## Docker
+
+The `Dockerfile` builds a single image that serves the compiled client, the
+collaboration WebSocket server, and the `/me` identity endpoint on one port
+(the server serves `client/dist` via `STATIC_DIR`, so no separate frontend
+hosting is needed). Documents persist to the `/app/.data` volume:
+
+```sh
+docker compose up --build
+# open http://localhost:1234
+```
+
+Client auth is baked in at build time (Vite env vars), while server auth is
+configured at runtime. Set them in the environment or a `.env` file next to
+`docker-compose.yml` — for authentik OIDC:
+
+```sh
+VITE_AUTH_MODE=oidc
+VITE_OIDC_ISSUER=https://auth.example.com/application/o/pretty-web/
+VITE_OIDC_CLIENT_ID=pretty-web
+AUTH_MODE=oidc
+AUTH_ISSUER=https://auth.example.com/application/o/pretty-web/
+# AUTH_AUDIENCE=...          # optional expected aud claim
+# AUTH_PROXY_SECRET=...      # proxy mode shared secret
+```
+
+Behind a reverse proxy, terminate TLS there and forward everything to the
+container, including the `Upgrade`/`Connection` headers for the WebSocket.
+In `proxy` auth mode the authentik outpost must sit in front so the
+`X-authentik-*` headers reach the server — never expose the container
+straight to the internet in that mode.
+
 ## Limitations
 
 - In `none` auth mode there is no access control — anyone with the room URL can
