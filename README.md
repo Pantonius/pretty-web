@@ -68,6 +68,90 @@ and the preview recompiles a few hundred milliseconds after you stop typing.
 | `HOST`             | server  | `127.0.0.1`                    | Bind address (`0.0.0.0` for Docker)    |
 | `DATA_DIR`         | server  | `<repo>/.data`                 | Room snapshot directory                |
 | `VITE_COLLAB_URL`  | client  | same host, `/collab` path      | WebSocket URL of the collab server     |
+| `AUTH_MODE`        | server  | `none`                         | `none`, `oidc`, or `proxy` (see below) |
+| `AUTH_ISSUER`      | server  | —                              | OIDC issuer URL (oidc mode)            |
+| `AUTH_AUDIENCE`    | server  | —                              | Expected `aud` claim (oidc mode)       |
+| `STATIC_DIR`       | server  | —                              | Serve a built client (e.g. `client/dist`) |
+| `VITE_AUTH_MODE`   | client  | `none`                         | `none`, `oidc`, or `proxy`             |
+| `VITE_OIDC_ISSUER` | client  | —                              | authentik provider URL (oidc mode)     |
+| `VITE_OIDC_CLIENT_ID` | client | —                            | OAuth2 client id (oidc mode)           |
+| `VITE_OIDC_REDIRECT_URI` | client | current origin + base     | OAuth redirect URI                     |
+
+## Authentication (authentik)
+
+The editor integrates with [authentik](https://goauthentik.io) in two ways, so
+users can log in through any upstream authentik supports (local, LDAP, SAML
+federation, social logins, …):
+
+### OIDC mode (native)
+
+Create an OAuth2/OIDC provider for the app in authentik (application type:
+*Confidential* or *Public*; for public browser clients use **public** with PKCE).
+Then set, for the server:
+
+```sh
+AUTH_MODE=oidc
+AUTH_ISSUER=https://auth.example.com/application/o/pretty-web/
+AUTH_AUDIENCE=<client id>   # optional but recommended
+```
+
+and for the client build:
+
+```sh
+VITE_AUTH_MODE=oidc
+VITE_OIDC_ISSUER=https://auth.example.com/application/o/pretty-web/
+VITE_OIDC_CLIENT_ID=<client id>
+```
+
+The browser does an authorization-code + PKCE flow against authentik; the
+WebSocket handshake must carry the access token, and the server verifies its
+RS256 signature against authentik's published JWKS (via OIDC discovery) plus
+`iss`/`aud`/`exp` claims. Unauthenticated peers are rejected at the socket level,
+so a leaked room URL is not enough to edit. `GET /me?token=…` returns the
+verified identity.
+
+### Proxy mode (any authentik protocol)
+
+Put the app behind an authentik **proxy provider** (embedded outpost or reverse
+proxy with forward auth). The outpost authenticates users with any protocol
+authentik offers and injects `X-authentik-*` headers; the server trusts them and
+exposes `GET /me`, which feeds identity into presence. Configure:
+
+```sh
+AUTH_MODE=proxy
+STATIC_DIR=client/dist   # optional: serve the built client from the same origin
+```
+
+`VITE_AUTH_MODE=proxy` on the client. In this mode the *server must only be
+reachable through the outpost* — the header is the identity, so direct access
+would bypass login. `AUTH_PROXY_SECRET` (checked against `x-authentik-proxy-secret`)
+adds a shared-secret check for deployments where the outpost can set a custom header.
+
+Example nginx fronting (forward auth pattern):
+
+```nginx
+location / {
+    auth_request /outpost.goauthentik.io/auth;
+    proxy_pass http://127.0.0.1:1234;          # collab server (static + ws)
+    proxy_http_version 1.1;
+    proxy_set_header Upgrade $http_upgrade;    # WebSocket passthrough
+    proxy_set_header Connection "upgrade";
+    proxy_set_header X-authentik-username $authentik_username;
+    proxy_set_header X-authentik-name $authentik_name;
+    proxy_set_header X-authentik-email $authentik_email;
+    proxy_set_header X-authentik-groups $authentik_groups;
+}
+```
+
+### Smoke test
+
+`node scripts/smoke-auth.mjs` runs a mock OIDC issuer (RSA-signed JWTs, discovery
++ JWKS) and asserts: valid tokens connect, expired/tampered/wrong-issuer/missing
+tokens get 401, and proxy-header identity works — across all three server modes.
+
+The server validates *authentication*; it does not yet bind awareness names to
+verified identities (a signed-in user could still claim a different display name).
+
 
 In development the Vite dev server proxies `/collab/*` to the local collab
 server. For production, build the client (`npm run build`) and either reverse-proxy

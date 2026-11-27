@@ -12,7 +12,7 @@ import { defaultKeymap, indentWithTab } from '@codemirror/commands'
 import { oneDark } from '@codemirror/theme-one-dark'
 import { yCollab } from 'y-codemirror.next'
 import * as Y from 'yjs'
-import { awareness } from '../collab'
+import { getAwareness } from '../collab'
 import { typstLanguage } from '../typst-lang'
 
 export function CodeEditor({ ytext }: { ytext: Y.Text }) {
@@ -32,7 +32,7 @@ export function CodeEditor({ ytext }: { ytext: Y.Text }) {
           EditorView.lineWrapping,
           oneDark,
           typstLanguage,
-          yCollab(ytext, awareness, { undoManager }),
+          yCollab(ytext, getAwareness(), { undoManager }),
           keymap.of([...defaultKeymap, indentWithTab])
         ]
       }),

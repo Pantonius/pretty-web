@@ -10,6 +10,9 @@ export default defineConfig({
         target: 'ws://127.0.0.1:1234',
         ws: true,
         rewriteWsOrigin: true
+      },
+      '/me': {
+        target: 'http://127.0.0.1:1234'
       }
     }
   }
