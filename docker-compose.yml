@@ -1,0 +1,23 @@
+services:
+  pretty-web:
+    build:
+      context: .
+      args:
+        VITE_AUTH_MODE: ${VITE_AUTH_MODE:-none}
+        VITE_OIDC_ISSUER: ${VITE_OIDC_ISSUER:-}
+        VITE_OIDC_CLIENT_ID: ${VITE_OIDC_CLIENT_ID:-}
+        VITE_OIDC_REDIRECT_URI: ${VITE_OIDC_REDIRECT_URI:-}
+        VITE_COLLAB_URL: ${VITE_COLLAB_URL:-}
+    ports:
+      - '1234:1234'
+    environment:
+      AUTH_MODE: ${AUTH_MODE:-none}
+      AUTH_ISSUER: ${AUTH_ISSUER:-}
+      AUTH_AUDIENCE: ${AUTH_AUDIENCE:-}
+      AUTH_PROXY_SECRET: ${AUTH_PROXY_SECRET:-}
+    volumes:
+      - pretty-web-data:/app/.data
+    restart: unless-stopped
+
+volumes:
+  pretty-web-data:

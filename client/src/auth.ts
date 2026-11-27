@@ -24,14 +24,14 @@ interface Tokens {
 }
 
 export function readAuthConfig(): AuthConfig {
-  const mode = (import.meta.env.VITE_AUTH_MODE as AuthMode | undefined) ?? 'none'
+  const mode = ((import.meta.env.VITE_AUTH_MODE as AuthMode | undefined) || 'none') as AuthMode
   return {
     mode,
     issuer: import.meta.env.VITE_OIDC_ISSUER as string | undefined,
     clientId: import.meta.env.VITE_OIDC_CLIENT_ID as string | undefined,
-    redirectUri: (import.meta.env.VITE_OIDC_REDIRECT_URI as string | undefined) ??
+    redirectUri: (import.meta.env.VITE_OIDC_REDIRECT_URI as string | undefined) ||
       `${window.location.origin}${import.meta.env.BASE_URL}`,
-    scope: (import.meta.env.VITE_OIDC_SCOPE as string | undefined) ?? 'openid profile email'
+    scope: (import.meta.env.VITE_OIDC_SCOPE as string | undefined) || 'openid profile email'
   }
 }
 

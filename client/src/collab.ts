@@ -76,7 +76,7 @@ export const roomName =
   new URLSearchParams(window.location.search).get('room') ?? 'default'
 
 export const collabUrl =
-  import.meta.env.VITE_COLLAB_URL ??
+  import.meta.env.VITE_COLLAB_URL ||
   `${window.location.protocol === 'https:' ? 'wss' : 'ws'}://${window.location.host}/collab`
 
 export const idbPersistence = new IndexeddbPersistence(
