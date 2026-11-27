@@ -15,6 +15,9 @@ WebSocket server.
 - Upload assets (images, CSV, fonts, …) via button or drag & drop — they are
   synced to every collaborator and readable from Typst (`#image(...)`, `#csv(...)`)
 - Split view: Typst source (CodeMirror 6 with Typst highlighting) and live preview
+- IntelliSense-style completions: Typst functions and snippets after `#`, project
+  file/asset paths inside `#image("…")`/`#csv("…")`/`#include "…"`, and `@label`
+  references defined anywhere in the project
 - Typst compiled client-side via [typst-wasm](https://github.com/typst-wasm/typst-wasm),
   including embedded default fonts (Libertinus Serif, New Computer Modern, DejaVu Sans Mono)
 - Compiler diagnostics panel with error/warning locations
