@@ -8,17 +8,91 @@ import * as syncProtocol from 'y-protocols/sync'
 import * as awarenessProtocol from 'y-protocols/awareness'
 import * as encoding from 'lib0/encoding'
 import * as decoding from 'lib0/decoding'
+import { createAuth } from './auth.mjs'
 
 const HOST = process.env.HOST ?? '127.0.0.1'
 const PORT = Number(process.env.PORT ?? 1234)
 const DATA_DIR = process.env.DATA_DIR ?? path.join(path.dirname(fileURLToPath(import.meta.url)), '../../.data')
+const STATIC_DIR = process.env.STATIC_DIR ?? ''
 const SAVE_DELAY_MS = 1000
 const PING_INTERVAL_MS = 30_000
 
 const MESSAGE_SYNC = 0
 const MESSAGE_AWARENESS = 1
 
+const MIME_TYPES = {
+  '.html': 'text/html; charset=utf-8',
+  '.js': 'text/javascript; charset=utf-8',
+  '.css': 'text/css; charset=utf-8',
+  '.json': 'application/json',
+  '.svg': 'image/svg+xml',
+  '.png': 'image/png',
+  '.ico': 'image/x-icon',
+  '.wasm': 'application/wasm',
+  '.otf': 'font/otf',
+  '.ttf': 'font/ttf',
+  '.woff': 'font/woff',
+  '.woff2': 'font/woff2'
+}
+
 fs.mkdirSync(DATA_DIR, { recursive: true })
+
+const auth = await createAuth()
+
+function sendJson(res, status, body) {
+  res.writeHead(status, { 'Content-Type': 'application/json' })
+  res.end(JSON.stringify(body))
+}
+
+function serveStatic(res, urlPath) {
+  const relative = urlPath.replace(/^\/+/, '') || 'index.html'
+  const file = path.join(STATIC_DIR, path.normalize(relative).replace(/^(\.\.[/\\])+/, ''))
+  if (!file.startsWith(STATIC_DIR)) {
+    res.writeHead(403)
+    res.end()
+    return
+  }
+  fs.readFile(file, (err, data) => {
+    if (err) {
+      fs.readFile(path.join(STATIC_DIR, 'index.html'), (err2, index) => {
+        if (err2) {
+          res.writeHead(404)
+          res.end()
+          return
+        }
+        res.writeHead(200, { 'Content-Type': MIME_TYPES['.html'] })
+        res.end(index)
+      })
+      return
+    }
+    res.writeHead(200, { 'Content-Type': MIME_TYPES[path.extname(file)] ?? 'application/octet-stream' })
+    res.end(data)
+  })
+}
+
+const server = http.createServer((req, res) => {
+  const url = new URL(req.url ?? '/', 'http://localhost')
+  if (url.pathname === '/me') {
+    auth
+      .authenticate(req)
+      .then(identity => {
+        res.setHeader('Cache-Control', 'no-store')
+        if (!identity) {
+          sendJson(res, 401, { error: 'unauthenticated' })
+          return
+        }
+        sendJson(res, 200, { user: identity })
+      })
+      .catch(() => sendJson(res, 500, { error: 'auth check failed' }))
+    return
+  }
+  if (STATIC_DIR) {
+    serveStatic(res, url.pathname)
+    return
+  }
+  res.writeHead(200, { 'Content-Type': 'text/plain' })
+  res.end('pretty-web collaboration server\n')
+})
 
 const rooms = new Map()
 
@@ -115,11 +189,6 @@ function closeConn(room, name, conn) {
   if (room.conns.size === 0) scheduleSave(room, name)
 }
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200, { 'Content-Type': 'text/plain' })
-  res.end('pretty-web collaboration server\n')
-})
-
 const wss = new WebSocketServer({ noServer: true })
 
 wss.on('connection', (conn, req) => {
@@ -169,11 +238,23 @@ wss.on('connection', (conn, req) => {
   }
 })
 
-server.on('upgrade', (req, socket, head) => {
+server.on('upgrade', async (req, socket, head) => {
+  let identity = null
+  try {
+    identity = await auth.authenticate(req)
+  } catch (err) {
+    console.error('auth check failed:', err.message)
+  }
+  if (!identity) {
+    socket.write('HTTP/1.1 401 Unauthorized\r\nConnection: close\r\n\r\n')
+    socket.destroy()
+    return
+  }
   wss.handleUpgrade(req, socket, head, ws => wss.emit('connection', ws, req))
 })
 
 server.listen(PORT, HOST, () => {
   console.log(`pretty-web collaboration server listening on http://${HOST}:${PORT}`)
   console.log(`room snapshots stored in ${DATA_DIR}`)
+  if (STATIC_DIR) console.log(`serving static client from ${STATIC_DIR}`)
 })
